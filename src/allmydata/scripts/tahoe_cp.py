@@ -9,7 +9,7 @@ from allmydata.scripts.common import get_alias, escape_path, \
 from allmydata.scripts.common_http import do_http, HTTPError
 from allmydata import uri
 from allmydata.util import fileutil
-from allmydata.util.fileutil import abspath_expanduser_unicode
+from allmydata.util.fileutil import abspath_expanduser_unicode, precondition_abspath
 from allmydata.util.encodingutil import unicode_to_url, listdir_unicode, quote_output, to_str
 from allmydata.util.assertutil import precondition
 
@@ -61,19 +61,19 @@ def make_tahoe_subdirectory(nodeurl, parent_writecap, name):
 
 class LocalFileSource:
     def __init__(self, pathname):
-        precondition(isinstance(pathname, unicode), pathname)
+        precondition_abspath(pathname)
         self.pathname = pathname
 
     def need_to_copy_bytes(self):
         return True
 
     def open(self, caps_only):
-        return open(os.path.expanduser(self.pathname), "rb")
+        return open(self.pathname, "rb")
 
 
 class LocalFileTarget:
     def __init__(self, pathname):
-        precondition(isinstance(pathname, unicode), pathname)
+        precondition_abspath(pathname)
         self.pathname = pathname
 
     def put_file(self, inf):
@@ -82,7 +82,7 @@ class LocalFileTarget:
 
 class LocalMissingTarget:
     def __init__(self, pathname):
-        precondition(isinstance(pathname, unicode), pathname)
+        precondition_abspath(pathname)
         self.pathname = pathname
 
     def put_file(self, inf):
@@ -91,7 +91,7 @@ class LocalMissingTarget:
 
 class LocalDirectorySource:
     def __init__(self, progressfunc, pathname):
-        precondition(isinstance(pathname, unicode), pathname)
+        precondition_abspath(pathname)
 
         self.progressfunc = progressfunc
         self.pathname = pathname
@@ -119,7 +119,7 @@ class LocalDirectorySource:
 
 class LocalDirectoryTarget:
     def __init__(self, progressfunc, pathname):
-        precondition(isinstance(pathname, unicode), pathname)
+        precondition_abspath(pathname)
 
         self.progressfunc = progressfunc
         self.pathname = pathname
@@ -517,6 +517,8 @@ class Copier:
 
     def to_stderr(self, text):
         print >>self.stderr, text
+
+    # FIXME reduce the amount of near-duplicate code between get_target_info and get_source_info.
 
     def get_target_info(self, destination_spec):
         rootcap, path = get_alias(self.aliases, destination_spec, None)

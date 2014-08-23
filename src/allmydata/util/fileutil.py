@@ -218,21 +218,18 @@ def rm_dir(dirname):
         raise OSError, excs
 
 
-def remove_if_possible(f):
+def remove_if_possible(path):
+    #precondition_abspath(path)
+
     try:
-        remove(f)
+        remove(path)
     except:
         pass
 
-def open_or_create(fname, binarymode=True):
-    try:
-        return open(fname, binarymode and "r+b" or "r+")
-    except EnvironmentError:
-        return open(fname, binarymode and "w+b" or "w+")
-
 def du(basedir):
-    size = 0
+    #precondition_abspath(basedir)
 
+    size = 0
     for root, dirs, files in os.walk(basedir):
         for f in files:
             fn = os.path.join(root, f)
@@ -243,19 +240,26 @@ def du(basedir):
 def move_into_place(source, dest):
     """Atomically replace a file, or as near to it as the platform allows.
     The dest file may or may not exist."""
+    #precondition_abspath(source)
+    #precondition_abspath(dest)
+
     if "win32" in sys.platform.lower():
         remove_if_possible(dest)
     os.rename(source, dest)
 
 def write_atomically(target, contents, mode="b"):
-    f = open(target+".tmp", "w"+mode)
+    #precondition_abspath(target)
+
+    f = open(target + u".tmp", "w"+mode)
     try:
         f.write(contents)
     finally:
         f.close()
-    move_into_place(target+".tmp", target)
+    move_into_place(target + u".tmp", target)
 
 def write(path, data, mode="wb"):
+    #precondition_abspath(path)
+
     wf = open(path, mode)
     try:
         wf.write(data)
@@ -263,15 +267,19 @@ def write(path, data, mode="wb"):
         wf.close()
 
 def read(path):
+    #precondition_abspath(path)
+
     rf = open(path, "rb")
     try:
         return rf.read()
     finally:
         rf.close()
 
-def put_file(pathname, inf):
+def put_file(path, inf):
+    #precondition_abspath(path)
+
     # TODO: create temporary file and move into place?
-    outf = open(os.path.expanduser(pathname), "wb")
+    outf = open(path, "wb")
     try:
         while True:
             data = inf.read(32768)
@@ -281,6 +289,20 @@ def put_file(pathname, inf):
     finally:
         outf.close()
 
+
+def precondition_abspath(path):
+    if not isinstance(path, unicode):
+        raise AssertionError("an abspath must be a Unicode string")
+
+    if sys.platform == "win32":
+        # This intentionally doesn't view absolute paths starting with a drive specification, or
+        # paths relative to the current drive, as acceptable.
+        if not path.startswith("\\\\"):
+            raise AssertionError("an abspath should be normalized using abspath_expanduser_unicode")
+    else:
+        # This intentionally doesn't view the path '~' or paths starting with '~/' as acceptable.
+        if not os.path.isabs(path):
+            raise AssertionError("an abspath should be normalized using abspath_expanduser_unicode")
 
 # Work around <http://bugs.python.org/issue3426>. This code is adapted from
 # <http://svn.python.org/view/python/trunk/Lib/ntpath.py?revision=78247&view=markup>
@@ -292,11 +314,20 @@ try:
 except ImportError:
     pass
 
-def abspath_expanduser_unicode(path):
-    """Return the absolute version of a path."""
-    assert isinstance(path, unicode), path
+def abspath_expanduser_unicode(path, base=None):
+    """
+    Return the absolute version of a path. If 'base' is given and 'path' is relative,
+    the path will be expanded relative to 'base'.
+    'path' must be a Unicode string. 'base', if given, must be a Unicode string
+    corresponding to an absolute path as returned by a previous call to
+    abspath_expanduser_unicode.
+    """
+    if not isinstance(path, unicode):
+        raise AssertionError("paths must be Unicode strings")
+    if base is not None:
+        precondition_abspath(base)
 
-    path = os.path.expanduser(path)
+    path = expanduser(path)
 
     if _getfullpathname:
         # On Windows, os.path.isabs will return True for paths without a drive letter,
@@ -307,7 +338,10 @@ def abspath_expanduser_unicode(path):
             pass
 
     if not os.path.isabs(path):
-        path = os.path.join(os.getcwdu(), path)
+        if base is None:
+            path = os.path.join(os.getcwdu(), path)
+        else:
+            path = os.path.join(base, path)
 
     # We won't hit <http://bugs.python.org/issue5827> because
     # there is always at least one Unicode path component.
@@ -334,10 +368,17 @@ def to_windows_long_path(path):
 
 have_GetDiskFreeSpaceExW = False
 if sys.platform == "win32":
-    try:
-        from ctypes import WINFUNCTYPE, windll, POINTER, byref, c_ulonglong
-        from ctypes.wintypes import BOOL, DWORD, LPCWSTR
+    from ctypes import WINFUNCTYPE, windll, POINTER, byref, c_ulonglong, create_unicode_buffer
+    from ctypes.wintypes import BOOL, DWORD, LPCWSTR, LPWSTR
 
+    # <http://msdn.microsoft.com/en-us/library/ms679360%28v=VS.85%29.aspx>
+    GetLastError = WINFUNCTYPE(DWORD)(("GetLastError", windll.kernel32))
+
+    # <http://msdn.microsoft.com/en-us/library/windows/desktop/ms683188%28v=vs.85%29.aspx>
+    GetEnvironmentVariableW = WINFUNCTYPE(LPCWSTR, LPWSTR, DWORD)(
+        ("GetEnvironmentVariableW", windll.kernel32))
+
+    try:
         # <http://msdn.microsoft.com/en-us/library/aa383742%28v=VS.85%29.aspx>
         PULARGE_INTEGER = POINTER(c_ulonglong)
 
@@ -345,13 +386,52 @@ if sys.platform == "win32":
         GetDiskFreeSpaceExW = WINFUNCTYPE(BOOL, LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER)(
             ("GetDiskFreeSpaceExW", windll.kernel32))
 
-        # <http://msdn.microsoft.com/en-us/library/ms679360%28v=VS.85%29.aspx>
-        GetLastError = WINFUNCTYPE(DWORD)(("GetLastError", windll.kernel32))
-
         have_GetDiskFreeSpaceExW = True
     except Exception:
         import traceback
         traceback.print_exc()
+
+def expanduser(path):
+    # os.path.expanduser is hopelessly broken on Windows (ticket #1674).
+    if sys.platform == "win32":
+        return windows_expanduser(path)
+    else:
+        return os.path.expanduser(path)
+
+def windows_expanduser(path):
+    if not path.startswith('~'):
+        return path
+    home_drive = windows_getenv(u'HOMEDRIVE')
+    home_path = windows_getenv(u'HOMEPATH')
+    if path == '~':
+        return os.path.join(home_drive, home_path)
+    elif path.startswith('~/') or path.startswith('~\\'):
+        return os.path.join(home_drive, home_path, path[2 :])
+    else:
+        return path
+
+def windows_getenv(name):
+    # Based on <http://stackoverflow.com/questions/2608200/problems-with-umlauts-in-python-appdata-environvent-variable/2608368#2608368>,
+    # with improved error handling.
+    if not isinstance(name, unicode):
+        raise AssertionError("name must be Unicode")
+
+    n = GetEnvironmentVariableW(name, None, 0)
+    if n <= 0:
+        err = GetLastError()
+        if err == 42:
+            return None
+        raise OSError("Windows error %d attempting to read environment variable %r"
+                      % (err, name))
+
+    buf = create_unicode_buffer(u'\0'*n)
+    retval = GetEnvironmentVariableW(name, buf, n)
+    if retval <= 0:
+        err = GetLastError()
+        raise OSError("Windows error %d attempting to read environment variable %r"
+                      % (err, name))
+
+    return buf.value
 
 def get_disk_stats(whichdir, reserved_space=0):
     """Return disk statistics for the storage disk, in the form of a dict

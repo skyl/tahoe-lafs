@@ -235,6 +235,9 @@ def quote_local_unicode_path(path, quotemarks=True):
 
     if sys.platform == "win32" and path.startswith(u"\\\\?\\"):
         path = path[4 :]
+        if path.startswith(u"UNC\\"):
+            path = u"\\\\" + path[4 :]
+
     return quote_output(path, quotemarks=quotemarks, quote_newlines=True)
 
 
