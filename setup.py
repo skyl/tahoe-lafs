@@ -421,7 +421,7 @@ if version:
 
 setup(name=APPNAME,
       description='secure, decentralized, fault-tolerant filesystem',
-      long_description=open('README.txt', 'rU').read(),
+      long_description=open('README.rst', 'rU').read(),
       author='the Tahoe-LAFS project',
       author_email='tahoe-dev@tahoe-lafs.org',
       url='https://tahoe-lafs.org/',
